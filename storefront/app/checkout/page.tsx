@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
+import { useForm } from 'react-hook-form'
 import { useCheckout, CheckoutStep, ShippingAddress } from '@/hooks/use-checkout'
 import { useCheckoutSettings } from '@/hooks/use-checkout-settings'
 import { useAuth } from '@/hooks/use-auth'
@@ -14,6 +15,7 @@ import { StripePaymentForm } from '@/components/checkout/stripe-payment-form'
 import { PromoCodeInput } from '@/components/checkout/promo-code-input'
 import { getProductImage } from '@/lib/utils/placeholder-images'
 import { trackBeginCheckout } from '@/lib/analytics'
+import { formatPrice } from '@/lib/utils/format-price'
 
 const steps: { key: CheckoutStep; label: string }[] = [
   { key: 'info', label: 'Information' },
@@ -21,7 +23,18 @@ const steps: { key: CheckoutStep; label: string }[] = [
   { key: 'payment', label: 'Payment & Review' },
 ]
 
-import { formatPrice } from '@/lib/utils/format-price'
+type InfoFormValues = {
+  email: string
+  first_name: string
+  last_name: string
+  company: string
+  address_1: string
+  address_2: string
+  city: string
+  postal_code: string
+  phone: string
+  country_code: string
+}
 
 export default function CheckoutPage() {
   const router = useRouter()
@@ -38,12 +51,25 @@ export default function CheckoutPage() {
     isApplyingPromo, isRemovingPromo,
   } = useCart()
 
-  const [email, setEmail] = useState('')
-  const [marketingOptIn, setMarketingOptIn] = useState(false)
-  const [address, setAddress] = useState<ShippingAddress>({
-    first_name: '', last_name: '', address_1: '', address_2: '',
-    company: '', city: '', postal_code: '', country_code: '', phone: '',
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setValue,
+    watch,
+  } = useForm<InfoFormValues>({
+    mode: 'onTouched',
+    defaultValues: {
+      email: '', first_name: '', last_name: '', company: '',
+      address_1: '', address_2: '', city: '', postal_code: '',
+      phone: '', country_code: '',
+    },
   })
+
+  const watchedEmail = watch('email')
+  const watchedAddress = watch()
+
+  const [marketingOptIn, setMarketingOptIn] = useState(false)
   const [selectedShipping, setSelectedShipping] = useState('')
 
   const hasItems = cart?.items && cart.items.length > 0
@@ -67,10 +93,10 @@ export default function CheckoutPage() {
 
   // Pre-fill email from customer if logged in
   useEffect(() => {
-    if (customer?.email && !email) {
-      setEmail(customer.email)
+    if (customer?.email) {
+      setValue('email', customer.email, { shouldValidate: false })
     }
-  }, [customer?.email, email])
+  }, [customer?.email, setValue])
 
   // Set country code from cart region (only once, on first load)
   const countryCodeSet = useRef(false)
@@ -79,9 +105,9 @@ export default function CheckoutPage() {
     const countryCode = cart?.shipping_address?.country_code || cart?.region?.countries?.[0]?.iso_2
     if (countryCode) {
       countryCodeSet.current = true
-      setAddress((prev) => ({ ...prev, country_code: countryCode }))
+      setValue('country_code', countryCode, { shouldValidate: false })
     }
-  }, [cart?.shipping_address?.country_code, cart?.region?.countries])
+  }, [cart?.shipping_address?.country_code, cart?.region?.countries, setValue])
 
   // Set marketing opt-in default based on settings
   useEffect(() => {
@@ -91,17 +117,27 @@ export default function CheckoutPage() {
   }, [checkoutSettings?.marketing_opt_in])
 
   // Step 1: Submit info
-  const handleInfoSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleInfoSubmit = handleSubmit(async (data) => {
     clearError()
-    await setContactAndAddress(email, address)
+    const shippingAddress: ShippingAddress = {
+      first_name: data.first_name || '',
+      last_name: data.last_name,
+      address_1: data.address_1,
+      address_2: data.address_2 || '',
+      company: data.company || '',
+      city: data.city,
+      postal_code: data.postal_code,
+      country_code: data.country_code || '',
+      phone: data.phone || '',
+    }
+    await setContactAndAddress(data.email, shippingAddress)
 
     // TODO: Store marketing opt-in preference in cart metadata or customer metadata
     // For now, it's captured but not persisted
     if (marketingOptIn) {
       console.log('Customer opted in to marketing emails')
     }
-  }
+  })
 
   // Step 2: Submit shipping
   const handleShippingSubmit = async (e: React.FormEvent) => {
@@ -128,9 +164,12 @@ export default function CheckoutPage() {
     }
   }
 
-  const updateAddress = (field: keyof ShippingAddress, value: string) => {
-    setAddress((prev) => ({ ...prev, [field]: value }))
-  }
+  const inputCls = (hasError: boolean) =>
+    `w-full border-b bg-transparent px-0 py-3 text-sm placeholder:text-muted-foreground focus:outline-none transition-colors ${
+      hasError
+        ? 'border-destructive focus:border-destructive'
+        : 'border-foreground/20 focus:border-foreground'
+    }`
 
   return (
     <>
@@ -186,19 +225,28 @@ export default function CheckoutPage() {
 
             {/* Step 1: Contact + Address */}
             {step === 'info' && (
-              <form onSubmit={handleInfoSubmit} className="space-y-8">
+              <form onSubmit={handleInfoSubmit} className="space-y-8" noValidate>
                 <section>
                   <h2 className="text-xs uppercase tracking-widest font-semibold mb-4">Contact</h2>
 
-                  {/* Email - always required */}
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    placeholder="Email address"
-                    className="w-full border-b border-foreground/20 bg-transparent px-0 py-3 text-sm placeholder:text-muted-foreground focus:border-foreground focus:outline-none transition-colors"
-                  />
+                  <div>
+                    <input
+                      type="email"
+                      {...register('email', {
+                        required: 'Email is required',
+                        pattern: {
+                          value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                          message: 'Please enter a valid email address',
+                        },
+                      })}
+                      placeholder="Email address"
+                      autoComplete="email"
+                      className={inputCls(!!errors.email)}
+                    />
+                    {errors.email && (
+                      <p className="mt-1 text-xs text-destructive">{errors.email.message}</p>
+                    )}
+                  </div>
 
                   {/* Marketing opt-in checkbox */}
                   {checkoutSettings?.marketing_opt_in?.enabled && checkoutSettings.marketing_opt_in.where !== 'signin' && (
@@ -218,91 +266,150 @@ export default function CheckoutPage() {
 
                 <section>
                   <h2 className="text-xs uppercase tracking-widest font-semibold mb-4">Shipping Address</h2>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-5">
                     {/* First Name - conditionally required */}
                     {checkoutSettings?.full_name === 'full' && (
-                      <input
-                        type="text"
-                        value={address.first_name}
-                        onChange={(e) => updateAddress('first_name', e.target.value)}
-                        required
-                        placeholder="First name"
-                        className="border-b border-foreground/20 bg-transparent px-0 py-3 text-sm placeholder:text-muted-foreground focus:border-foreground focus:outline-none transition-colors"
-                      />
+                      <div>
+                        <input
+                          type="text"
+                          {...register('first_name', {
+                            validate: (val) =>
+                              checkoutSettings?.full_name === 'full' && !val?.trim()
+                                ? 'First name is required'
+                                : true,
+                          })}
+                          placeholder="First name"
+                          autoComplete="given-name"
+                          className={inputCls(!!errors.first_name)}
+                        />
+                        {errors.first_name && (
+                          <p className="mt-1 text-xs text-destructive">{errors.first_name.message}</p>
+                        )}
+                      </div>
                     )}
 
                     {/* Last Name - always required */}
-                    <input
-                      type="text"
-                      value={address.last_name}
-                      onChange={(e) => updateAddress('last_name', e.target.value)}
-                      required
-                      placeholder={checkoutSettings?.full_name === 'last_only' ? 'Last name' : 'Last name'}
-                      className={`border-b border-foreground/20 bg-transparent px-0 py-3 text-sm placeholder:text-muted-foreground focus:border-foreground focus:outline-none transition-colors ${checkoutSettings?.full_name === 'last_only' ? 'col-span-2' : ''}`}
-                    />
+                    <div className={checkoutSettings?.full_name === 'last_only' ? 'col-span-2' : ''}>
+                      <input
+                        type="text"
+                        {...register('last_name', { required: 'Last name is required' })}
+                        placeholder="Last name"
+                        autoComplete="family-name"
+                        className={inputCls(!!errors.last_name)}
+                      />
+                      {errors.last_name && (
+                        <p className="mt-1 text-xs text-destructive">{errors.last_name.message}</p>
+                      )}
+                    </div>
 
                     {/* Company Name - conditional visibility */}
                     {checkoutSettings?.company_name === 'optional' && (
-                      <input
-                        type="text"
-                        value={address.company}
-                        onChange={(e) => updateAddress('company', e.target.value)}
-                        placeholder="Company (optional)"
-                        className="col-span-2 border-b border-foreground/20 bg-transparent px-0 py-3 text-sm placeholder:text-muted-foreground focus:border-foreground focus:outline-none transition-colors"
-                      />
+                      <div className="col-span-2">
+                        <input
+                          type="text"
+                          {...register('company')}
+                          placeholder="Company (optional)"
+                          autoComplete="organization"
+                          className={inputCls(false)}
+                        />
+                      </div>
                     )}
 
                     {/* Address Line 1 - always required */}
-                    <input
-                      type="text"
-                      value={address.address_1}
-                      onChange={(e) => updateAddress('address_1', e.target.value)}
-                      required
-                      placeholder="Address"
-                      className="col-span-2 border-b border-foreground/20 bg-transparent px-0 py-3 text-sm placeholder:text-muted-foreground focus:border-foreground focus:outline-none transition-colors"
-                    />
+                    <div className="col-span-2">
+                      <input
+                        type="text"
+                        {...register('address_1', { required: 'Address is required' })}
+                        placeholder="Address"
+                        autoComplete="address-line1"
+                        className={inputCls(!!errors.address_1)}
+                      />
+                      {errors.address_1 && (
+                        <p className="mt-1 text-xs text-destructive">{errors.address_1.message}</p>
+                      )}
+                    </div>
 
                     {/* Address Line 2 - conditional visibility and requirement */}
                     {checkoutSettings?.address_line_2 !== 'hidden' && (
-                      <input
-                        type="text"
-                        value={address.address_2}
-                        onChange={(e) => updateAddress('address_2', e.target.value)}
-                        required={checkoutSettings?.address_line_2 === 'required'}
-                        placeholder={checkoutSettings?.address_line_2 === 'required' ? 'Apartment, suite, etc.' : 'Apartment, suite, etc. (optional)'}
-                        className="col-span-2 border-b border-foreground/20 bg-transparent px-0 py-3 text-sm placeholder:text-muted-foreground focus:border-foreground focus:outline-none transition-colors"
-                      />
+                      <div className="col-span-2">
+                        <input
+                          type="text"
+                          {...register('address_2', {
+                            validate: (val) =>
+                              checkoutSettings?.address_line_2 === 'required' && !val?.trim()
+                                ? 'Apartment/suite is required'
+                                : true,
+                          })}
+                          placeholder={checkoutSettings?.address_line_2 === 'required' ? 'Apartment, suite, etc.' : 'Apartment, suite, etc. (optional)'}
+                          autoComplete="address-line2"
+                          className={inputCls(!!errors.address_2)}
+                        />
+                        {errors.address_2 && (
+                          <p className="mt-1 text-xs text-destructive">{errors.address_2.message}</p>
+                        )}
+                      </div>
                     )}
 
                     {/* City - always required */}
-                    <input
-                      type="text"
-                      value={address.city}
-                      onChange={(e) => updateAddress('city', e.target.value)}
-                      required
-                      placeholder="City"
-                      className="border-b border-foreground/20 bg-transparent px-0 py-3 text-sm placeholder:text-muted-foreground focus:border-foreground focus:outline-none transition-colors"
-                    />
+                    <div>
+                      <input
+                        type="text"
+                        {...register('city', { required: 'City is required' })}
+                        placeholder="City"
+                        autoComplete="address-level2"
+                        className={inputCls(!!errors.city)}
+                      />
+                      {errors.city && (
+                        <p className="mt-1 text-xs text-destructive">{errors.city.message}</p>
+                      )}
+                    </div>
 
                     {/* Postal Code - always required */}
-                    <input
-                      type="text"
-                      value={address.postal_code}
-                      onChange={(e) => updateAddress('postal_code', e.target.value)}
-                      required
-                      placeholder="Postal code"
-                      className="border-b border-foreground/20 bg-transparent px-0 py-3 text-sm placeholder:text-muted-foreground focus:border-foreground focus:outline-none transition-colors"
-                    />
+                    <div>
+                      <input
+                        type="text"
+                        {...register('postal_code', {
+                          required: 'Postal code is required',
+                          pattern: {
+                            value: /^[A-Za-z0-9\s-]{2,10}$/,
+                            message: 'Please enter a valid postal code',
+                          },
+                        })}
+                        placeholder="Postal code"
+                        autoComplete="postal-code"
+                        className={inputCls(!!errors.postal_code)}
+                      />
+                      {errors.postal_code && (
+                        <p className="mt-1 text-xs text-destructive">{errors.postal_code.message}</p>
+                      )}
+                    </div>
 
                     {/* Phone - conditional requirement */}
-                    <input
-                      type="text"
-                      value={address.phone}
-                      onChange={(e) => updateAddress('phone', e.target.value)}
-                      required={checkoutSettings?.phone === 'required'}
-                      placeholder={checkoutSettings?.phone === 'required' ? 'Phone' : 'Phone (optional)'}
-                      className="col-span-2 border-b border-foreground/20 bg-transparent px-0 py-3 text-sm placeholder:text-muted-foreground focus:border-foreground focus:outline-none transition-colors"
-                    />
+                    <div className="col-span-2">
+                      <input
+                        type="tel"
+                        {...register('phone', {
+                          validate: (val) => {
+                            if (checkoutSettings?.phone === 'required' && !val?.trim()) {
+                              return 'Phone is required'
+                            }
+                            if (val?.trim() && !/^[\d\s+\-()]{6,20}$/.test(val)) {
+                              return 'Please enter a valid phone number'
+                            }
+                            return true
+                          },
+                        })}
+                        placeholder={checkoutSettings?.phone === 'required' ? 'Phone' : 'Phone (optional)'}
+                        autoComplete="tel"
+                        className={inputCls(!!errors.phone)}
+                      />
+                      {errors.phone && (
+                        <p className="mt-1 text-xs text-destructive">{errors.phone.message}</p>
+                      )}
+                    </div>
+
+                    {/* Hidden country code field */}
+                    <input type="hidden" {...register('country_code')} />
                   </div>
                 </section>
 
@@ -322,8 +429,8 @@ export default function CheckoutPage() {
               <form onSubmit={handleShippingSubmit} className="space-y-6">
                 <div className="p-4 border rounded-sm bg-muted/30 text-sm">
                   <p className="text-muted-foreground">Shipping to</p>
-                  <p className="font-medium mt-1">{address.first_name} {address.last_name}</p>
-                  <p className="text-muted-foreground">{address.address_1}, {address.city} {address.postal_code}</p>
+                  <p className="font-medium mt-1">{watchedAddress.first_name} {watchedAddress.last_name}</p>
+                  <p className="text-muted-foreground">{watchedAddress.address_1}, {watchedAddress.city} {watchedAddress.postal_code}</p>
                   <button
                     type="button"
                     onClick={() => setStep('info')}
@@ -406,11 +513,11 @@ export default function CheckoutPage() {
                 <div className="p-4 border rounded-sm bg-muted/30 text-sm space-y-2">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Contact</span>
-                    <span>{email}</span>
+                    <span>{watchedEmail}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Ship to</span>
-                    <span>{address.address_1}, {address.city}</span>
+                    <span>{watchedAddress.address_1}, {watchedAddress.city}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Method</span>
