@@ -36,8 +36,8 @@ export default function HomePage() {
             <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">
               New Collection
             </p>
-            <h1 className="text-display font-heading font-semibold text-balance">
-              Elevate Your Everyday
+            <h1 className="text-display font-heading font-semibold text-balance bg-gradient-to-r from-pink-500 via-orange-400 to-yellow-400 bg-clip-text text-transparent drop-shadow-sm">
+              ✨ Happy Coding! ✨
             </h1>
             <p className="text-lg text-muted-foreground max-w-md leading-relaxed">
               Thoughtfully designed products that bring beauty and function to your daily rituals.
