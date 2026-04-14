@@ -49,7 +49,14 @@ function getVariantPriceAmount(variant: ProductVariantWithPrice | undefined): nu
 }
 
 export default function ProductActions({ product, variantExtensions }: ProductActionsProps) {
-  const variants = useMemo(() => product.variants || [], [product.variants])
+  // Medusa Admin API returns variant.options as VariantOption[] (the `options`
+  // relation expanded), but the SDK's generic ProductVariant type declares it
+  // as Record<string, string>. Cast here so the rest of the component can use
+  // the actual runtime shape.
+  const variants = useMemo(
+    () => (product.variants || []) as unknown as ProductVariantWithPrice[],
+    [product.variants],
+  )
   const options = useMemo(() => product.options || [], [product.options])
 
   // Track selected value per option: { "opt_xxx": "S", "opt_yyy": "Black" }
@@ -79,6 +86,7 @@ export default function ProductActions({ product, variantExtensions }: ProductAc
       if (!v.options) return false
       return v.options.every((opt: VariantOption) => {
         const optionId = opt.option_id || opt.option?.id
+        if (!optionId) return false
         return selectedOptions[optionId] === opt.value
       })
     }) || variants[0]
@@ -87,7 +95,8 @@ export default function ProductActions({ product, variantExtensions }: ProductAc
   // Extension data for selected variant (compare-at + inventory)
   const ext = selectedVariant?.id ? variantExtensions?.[selectedVariant.id] : null
   const currentPriceCents = getVariantPriceAmount(selectedVariant)
-  const currency = selectedVariant?.calculated_price?.currency_code || 'usd'
+  const cp = selectedVariant?.calculated_price
+  const currency = (cp && typeof cp !== 'number' ? cp.currency_code : undefined) || 'usd'
 
   const manageInventory = ext?.manage_inventory ?? false
   const inventoryQuantity = ext?.inventory_quantity

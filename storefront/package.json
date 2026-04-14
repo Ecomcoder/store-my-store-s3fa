@@ -10,11 +10,12 @@
     "build": "next build",
     "start": "next start -p ${PORT:-3000}",
     "type-check": "tsc --noEmit",
-    "lint": "next lint"
+    "lint": "next lint",
+    "postinstall": "git -C .. config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
-    "@medusajs/js-sdk": "latest",
+    "@medusajs/js-sdk": "^2.13.4",
     "@stripe/react-stripe-js": "^5.6.1",
     "@stripe/stripe-js": "^8.11.0",
     "@tailwindcss/typography": "^0.5.19",

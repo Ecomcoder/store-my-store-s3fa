@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Pre-commit: run type-check + lint on storefront.
+# Matches CI exactly — if this passes locally, CI will pass too.
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT/storefront"
+
+echo "→ type-check"
+bun run type-check
+
+echo "→ lint"
+bun run lint
